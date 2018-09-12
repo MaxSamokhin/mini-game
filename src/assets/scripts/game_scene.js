@@ -1,12 +1,16 @@
+import {randomInteger} from './helpers';
+import mediator from './mediator';
 import {
     SIZE_CANVAS,
     COUNT_CIRCLE,
     ARRAY_COLORS,
     SELECTED_COLOR
 } from './constant';
+import {NEW_STATE} from './events';
 
-import {randomInteger} from './helpers';
-
+/**
+ * Игровая сцена
+ */
 export default class GameScene {
 
     constructor(canvas) {
@@ -27,23 +31,109 @@ export default class GameScene {
             offsetTopCanvas: canvas.offsetTop
         };
 
+        this.state = {};
         this.selectedPoint = [];
         this.requestIDs = [];
+        this.firstCick = true;
 
-        this.render();
         document.addEventListener('click', this.onClickToCanvas.bind(this));
     }
-
-    // находит удаляемые комбинации шариков
-    getPointsForDelete() {
-        return [[1, 1], [1, 2], [1, 3]];
+    
+    /**
+     * Освобождение ресурсов
+     */
+    destroy() {
+        document.removeEventListener('click', this.onClickToCanvas.bind(this));
     }
 
-    deleteBlock(matrixColors) {
+    /**
+     * Устанавливка состояние игрового поля
+     * @param state
+     */
+    setState(state) {
+        this.state = state;
+
+        this.matrixColors = this.state.matrixColor;
+    }
+
+    /**
+     * Отображение поля, удаление повторяющихся комбинации
+     */
+    render() {
+        if(!this.state) {
+            return;
+        }
+
+        this.drawField();
+        this.deleteBlock();
+    }
+
+    /**
+     * Нарисовать игровое поле
+     */
+    drawField() {
+        const {col, row, colors, radiusCircle} = this.settings;
+
+        for (let i = 0; i < row; i++) {
+            for (let j = 0; j < col; j++) {
+
+                this.ctx.beginPath();
+
+                this.ctx.arc(
+                    radiusCircle + j * (radiusCircle * 2),
+                    radiusCircle + i * (radiusCircle * 2),
+                    radiusCircle,
+                    0, 2 * Math.PI
+                );
+
+                this.ctx.fillStyle = colors[this.matrixColors[i][j]];
+                this.ctx.fill();
+            }
+        }
+    }
+
+    /**
+     * Обработка клика по canvas
+     * @param e
+     */
+    onClickToCanvas(e) {
+        const {offsetLeftCanvas, offsetTopCanvas, radiusCircle} = this.settings;
+
+        let coordinateX = Math.floor((e.pageY - offsetTopCanvas) / (radiusCircle * 2));
+        let coordinateY = Math.floor((e.pageX - offsetLeftCanvas) / (radiusCircle * 2));
+
+        if (this.firstCick) {
+            this.selectedPoint = this._selectCircle([coordinateX, coordinateY]);
+            this.firstCick = false;
+            return;
+        }
+
+        this.firstCick = true;
+        if (!this._isCorrectDistance([coordinateX, coordinateY], this.selectedPoint)) {
+            return;
+        }
+
+        this._swapElementMatrix(this.selectedPoint, [coordinateX, coordinateY], this.matrixColors);
+
+        if (this._getPointsForDelete().length === 0) { // если перестановка не приведет к выстроению комбинации
+            this._swapElementMatrix(this.selectedPoint, [coordinateX, coordinateY], this.matrixColors);
+        }
+
+        this.deleteBlock();
+
+        this.drawField(); // чтобы отризовался элемент, который свапнулся
+        mediator.emit(NEW_STATE, {matrixColor: this.matrixColors}); 
+    }
+
+    /**
+     * Анимированное удаление найденой комбинации
+     * @returns {number} 
+     */
+    deleteBlock() {
         let {colors, radiusCircle} = this.settings;
         let diameterCircle = 2 * radiusCircle;
 
-        let pointsForDelete = this.getPointsForDelete();
+        let pointsForDelete = this._getPointsForDelete();
 
         const animation = () => {
 
@@ -60,7 +150,7 @@ export default class GameScene {
                 );
 
                 this.ctx.beginPath();
-                const normalize = (diameterCircle / 2 - radiusCircle);
+                const normalize = diameterCircle / 2 - radiusCircle;
 
                 this.ctx.arc(
                     normalize + radiusCircle + col * ((normalize + radiusCircle) * 2),
@@ -69,35 +159,106 @@ export default class GameScene {
                     0, 2 * Math.PI
                 );
 
-                this.ctx.fillStyle = colors[matrixColors[row][col]];
+                this.ctx.fillStyle = colors[this.matrixColors[row][col]];
                 this.ctx.fill();
-
             });
 
-            if (radiusCircle > 0) {
-                this.requestIDs.push(requestAnimationFrame(animation));
-                return void 0;
+            if (radiusCircle <= 0) {
+                this.requestIDs.forEach(id => cancelAnimationFrame(id));
+                pointsForDelete.forEach(point => this.matrixColors[point[0]][point[1]] = -1);
+
+                this._normalizeCircle();
+                if (this._getPointsForDelete().length !== 0) { // если остались комбинации блоков, удаляем их
+                    this.deleteBlock();
+                }
+
+                this.drawField();
+                mediator.emit(NEW_STATE, {matrixColor: this.matrixColors});
+                return;
             }
 
-            this.requestIDs.forEach(id => cancelAnimationFrame(id));
+            return this.requestIDs.push(requestAnimationFrame(animation));
         };
 
-        this.requestIDs[0] = requestAnimationFrame(animation);
+        return this.requestIDs[0] = requestAnimationFrame(animation);
+    }
+    
+    //TODO переписать как-нибудь
+    /**
+     * нахождение индексов удаляемых шариков
+     * @private
+     */
+    _getPointsForDelete() {
+        const {row, col} = this.settings;
+        let arr = [];
+
+        for (let i = 0; i < row; i++) {
+            for (let j = 0; j < col; j++) {
+
+                // находим в строке
+                arr = [[i, j]];
+
+                while (j + arr.length < col && this.matrixColors[i][j] === this.matrixColors[i][j + arr.length]) {
+                    arr.push([i, j + arr.length]);
+                }
+
+                if (arr.length >= 3) {
+                    return arr;
+                }
+
+                // находим в столбце
+                arr = [[i, j]];
+
+                while (i + arr.length < row && this.matrixColors[i][j] === this.matrixColors[i + arr.length][j]) {
+                    arr.push([i + arr.length, j]);
+                }
+
+                if (arr.length >= 3) {
+                    return arr;
+                }
+
+            }
+        }
+
+        return [];
     }
 
-    onClickToCanvas(e) {
-        const {offsetLeftCanvas, offsetTopCanvas, radiusCircle} = this.settings;
-
-        let coordinateX = Math.floor((e.pageX - offsetLeftCanvas) / (radiusCircle * 2));
-        let coordinateY = Math.floor((e.pageY - offsetTopCanvas) / (radiusCircle * 2));
-
-        this.selectedPoint = [coordinateY, coordinateX];
-
-        this.isSelected(this.selectedPoint);
-
+    /**
+     * Меняем точку pointA c pointB местами в matrix
+     * @param pointA
+     * @param pointB
+     * @param matrix
+     * @private
+     */
+    _swapElementMatrix(pointA, pointB, matrix) {
+        let tmp = matrix[pointA[0]][pointA[1]];
+        matrix[pointA[0]][pointA[1]] = matrix[pointB[0]][pointB[1]];
+        matrix[pointB[0]][pointB[1]] = tmp;
     }
 
-    getCorrectRowAndCol([row, col]) {
+    /**
+     * Проверка корректного расстояния между точками, для их перестановки
+     * @param pointA
+     * @param pointB
+     * @returns {boolean}
+     * @private
+     */
+    _isCorrectDistance(pointA, pointB) {
+        let distance = (
+            ((pointA[0] - pointB[0]) ** 2 + (pointA[1] - pointB[1]) ** 2) ** 0.5
+        );
+
+        return distance === 1;
+    }
+
+    /**
+     * Коррекция row и col
+     * @param row
+     * @param col
+     * @returns {*[]}
+     * @private
+     */
+    _getCorrectRowAndCol([row, col]) {
         row = row > COUNT_CIRCLE - 1 ?
             COUNT_CIRCLE - 1 :
             (row < 0 ? 0 : row);
@@ -109,8 +270,13 @@ export default class GameScene {
         return [row, col];
     }
 
-    isSelected() {
-        const [row, col] = this.getCorrectRowAndCol(...arguments);
+    /**
+     * Выделение нажатого круга
+     * @returns {*[]} параметры круга
+     * @private
+     */
+    _selectCircle() {
+        const [row, col] = this._getCorrectRowAndCol(...arguments);
         const {radiusCircle} = this.settings;
 
         this.ctx.beginPath();
@@ -118,56 +284,47 @@ export default class GameScene {
         this.ctx.arc(
             radiusCircle + col * (radiusCircle * 2),
             radiusCircle + row * (radiusCircle * 2),
-            radiusCircle,
+            radiusCircle - 3,
             0, 2 * Math.PI
         );
 
         this.ctx.lineWidth = 5;
         this.ctx.strokeStyle = SELECTED_COLOR;
         this.ctx.stroke();
+
+        return [row, col];
     }
 
-    getMatrixColors() {
-        const {col, row, countColors} = this.settings;
+    /**
+     * Сдвиг элементов матрицы вниз
+     * @private
+     */
+    _normalizeCircle() {
+        const {row, col, countColors} = this.settings;
+        let isNormalizeMatrix = false;
 
-        let resultMatrix = new Array(row).fill();
+        while (!isNormalizeMatrix) {
+            isNormalizeMatrix = true;
 
-        return resultMatrix.map(() => new Array(col)
-            .fill()
-            .map(() => randomInteger(0, countColors - 1))
-        );
-    }
+            for (let i = 0; i < row; i++) {
+                for (let j = 0; j < col; j++) {
 
+                    if (this.matrixColors[i][j] < 0) {
+                        isNormalizeMatrix = false;
 
-    drawField(matrixColors) {
-        const {col, row, colors, radiusCircle} = this.settings;
+                        // найденый элемент в самом верху
+                        if (i === 0) {
+                            this.matrixColors[i][j] = randomInteger(0, countColors - 1);
+                        }
 
-        for (let i = 0; i < row; i++) {
-            for (let j = 0; j < col; j++) {
+                        if (i > 0) {
+                            this.matrixColors[i][j] = this.matrixColors[i - 1][j]; // запоминаем число, которе нужно спустить
+                            this.matrixColors[i - 1][j] = -1; // поднимаем -1 до условия i === 0
+                        }
 
-                this.ctx.beginPath();
-
-                this.ctx.arc(
-                    radiusCircle + j * (radiusCircle * 2),
-                    radiusCircle + i * (radiusCircle * 2),
-                    radiusCircle,
-                    0, 2 * Math.PI
-                );
-
-                this.ctx.fillStyle = colors[matrixColors[i][j]];
-                this.ctx.fill();
-
+                    }
+                }
             }
         }
-    }
-
-    setState(state) {
-        this.state = state;
-    }
-
-    render() {
-        let matrixColors = this.getMatrixColors(); // вынести в this конструктора
-        this.drawField(matrixColors);
-        this.deleteBlock(matrixColors);
     }
 }

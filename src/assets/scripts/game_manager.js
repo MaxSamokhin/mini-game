@@ -1,45 +1,43 @@
 import GameScene from './game_scene';
+import mediator from './mediator';
+import {randomInteger} from './helpers';
+
+import {NEW_STATE} from './events';
+import {ARRAY_COLORS, COUNT_CIRCLE} from './constant';
+
 
 export default class GameManager {
     constructor(canvas) {
-        // TODO (start, finish) подписаться на события START FINISH, NEW_STATE и вызывать соответствующие обработчики
-        this.scene = new GameScene(canvas);
+        this.state = {
+            matrixColor: this.getMatrixColors()
+        };
 
-        // this.onStart();
+        this.scene = new GameScene(canvas);
+        mediator.on(NEW_STATE, this.onNewState.bind(this));
+
+        this.render();
+    }
+
+    getMatrixColors() {
+        let resultMatrix = new Array(COUNT_CIRCLE).fill();
+
+        return resultMatrix.map(() => new Array(COUNT_CIRCLE)
+            .fill()
+            .map(() => randomInteger(0, ARRAY_COLORS.length - 1))
+        );
+    }
+
+    render() {
+        this.scene.setState(this.state);
+        this.scene.render();
     }
 
     onNewState(payload) {
-        //изменение состояния
-        this.state = payload.state;
+        this.state = payload;
     }
 
-    onStart() {
-        //TODO вынести отдельно класс для управления, здесь создавать экземпляр
-        this.startGameLoop();
-    }
-
-    onFinish() {
-
-    }
-
-    startGameLoop() {
-        this.requestID = requestAnimationFrame(this.gameLoop.bind(this));
-    }
-
-    gameLoop() {
-        //TODO смотреть действия пользователя
-
-        this.scene.setState(this.state); // установим новое состояние игрового мира
-        this.scene.render(); // перерисуем
-
-        this.requestID = requestAnimationFrame(this.gameLoop.bind(this));
-    }
-
-    onFinishGame() {
-        if (this.requestID) {
-            cancelAnimationFrame(this.requestID);
-        }
-
+    destroy() {
         this.scene.destroy();
+        mediator.off(NEW_STATE);
     }
 }
