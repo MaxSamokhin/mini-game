@@ -8,7 +8,8 @@ class App {
         this.game = new Game();
 
         mediator.emit(START_GAME, {
-            payload: { //здесь данные, которые необходимы на экране с игрой
+            //здесь данные, которые необходимы на экране с игрой
+            payload: {
                 canvas: this.canvas
             }
         });
@@ -21,4 +22,3 @@ class App {
 }
 
 new App();
-

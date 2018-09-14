@@ -7,7 +7,7 @@
     "gulp": "./node_modules/.bin/gulp",
     "start": "npm run gulp static && ./node_modules/.bin/webpack --config webpack.config.js && node server.js",
     "style": "npm run gulp static-dev",
-    "js":  "webpack-dev-server --config webpack.config.js",
+    "js": "webpack-dev-server --config webpack.config.js",
     "lint": "npm run gulp eslint"
   },
   "repository": {
@@ -34,12 +34,12 @@
     "webpack-dev-server": "^3.1.5"
   },
   "devDependencies": {
-    "gulp": "^3.9.1",
-    "gulp-rename": "^1.4.0",
-    "gulp-less": "^4.0.1",
     "eslint": "^5.4.0",
     "eslint-loader": "^2.1.0",
     "extract-text-webpack-plugin": "^4.0.0-beta.0",
+    "gulp": "^3.9.1",
+    "gulp-less": "^4.0.1",
+    "gulp-rename": "^1.4.0",
     "path": "^0.12.7"
   }
 }
